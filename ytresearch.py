@@ -1,3 +1,4 @@
+import streamlit as st
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
 
@@ -10,10 +11,7 @@ youtube = build("youtube", "v3", developerKey=API_KEY)
 
 def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_subs=50000, max_results=50):
     results = []
-    
     published_after = (datetime.utcnow() - timedelta(days=days)).isoformat("T") + "Z"
-
-    print(f"[DEBUG] Searching for '{keywords}' | Type: {video_type} | Days: {days} | Min Views: {min_views} | Max Subs: {max_subs}")
 
     search_response = youtube.search().list(
         q=keywords,
@@ -25,9 +23,7 @@ def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_sub
     ).execute()
 
     video_ids = [item["id"]["videoId"] for item in search_response.get("items", [])]
-
     if not video_ids:
-        print("[DEBUG] No videos found for given criteria.")
         return []
 
     video_response = youtube.videos().list(
@@ -57,7 +53,6 @@ def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_sub
                 continue
 
             results.append({
-                "video_id": vid_id,
                 "title": title,
                 "channel": channel_title,
                 "views": views,
@@ -69,22 +64,40 @@ def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_sub
                 break
 
         except Exception as e:
-            print(f"[ERROR] Error parsing video: {e}")
+            st.error(f"Error parsing video: {e}")
             continue
 
     return results
 
 
-if __name__ == "__main__":
-    keywords = input("Enter search keywords: ")
-    video_type = input("Enter type (Shorts/Video): ")
-    days = int(input("Enter max video age (days): "))
-    min_views = int(input("Enter minimum views: "))
-    max_subs = int(input("Enter maximum channel subscribers: "))
+# -----------------------------
+# STREAMLIT UI
+# -----------------------------
+st.title("📺 YouTube Video Finder")
 
-    filtered_videos = youtube_filter(keywords, video_type, days, min_views, max_subs)
+keywords = st.text_input("Enter search keywords:")
+video_type = st.selectbox("Select type:", ["Video", "Shorts"])
+days = st.number_input("Max video age (days):", min_value=1, max_value=365, value=7)
+min_views = st.number_input("Minimum views:", min_value=0, value=1000)
+max_subs = st.number_input("Maximum channel subscribers:", min_value=0, value=50000)
+max_results = st.slider("Max results:", 10, 50, 20)
 
-    print("\n================= FILTERED VIDEOS =================")
-    for idx, v in enumerate(filtered_videos, 1):
-        print(f"{idx}. {v['title']} | {v['channel']} | {v['views']} views | {v['subscribers']} subs")
-        print(f"   {v['url']}")
+if st.button("Search"):
+    if keywords.strip() == "":
+        st.warning("Please enter keywords.")
+    else:
+        with st.spinner("Searching YouTube..."):
+            filtered_videos = youtube_filter(
+                keywords, video_type, days, min_views, max_subs, max_results
+            )
+
+        if not filtered_videos:
+            st.info("No videos found matching your criteria.")
+        else:
+            st.success(f"Found {len(filtered_videos)} videos!")
+            for v in filtered_videos:
+                st.markdown(
+                    f"**[{v['title']}]({v['url']})**  \n"
+                    f"Channel: {v['channel']}  \n"
+                    f"Views: {v['views']} | Subs: {v['subscribers']}"
+                )
