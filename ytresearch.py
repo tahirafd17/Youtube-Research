@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import isodate
 
 # -----------------------------
-# SET YOUR API KEY
+# YOUR API KEY
 # -----------------------------
 API_KEY = "AIzaSyA_ZlzeFL9fEVJoG93Ii1VHZ58aTSzckpw"
 youtube = build("youtube", "v3", developerKey=API_KEY)
@@ -18,21 +18,19 @@ def parse_duration(duration_str):
         return 0
 
 
-def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_subs=50000,
-                   max_results=50, video_min_len=0, video_max_len=99999):
+def youtube_filter(keywords, video_type="video", days=7, min_views=1000,
+                   max_subs=50000, max_results=50, video_min_len=0, video_max_len=99999):
     results = []
     published_after = (datetime.utcnow() - timedelta(days=days)).isoformat("T") + "Z"
 
-    # For Shorts, use "short" filter, otherwise "any"
-    duration_filter = "short" if video_type.lower() == "shorts" else "any"
-
+    # Always fetch any, then filter manually
     search_response = youtube.search().list(
         q=keywords,
         type="video",
         part="id,snippet",
         maxResults=50,
         publishedAfter=published_after,
-        videoDuration=duration_filter
+        videoDuration="any"
     ).execute()
 
     video_ids = [item["id"]["videoId"] for item in search_response.get("items", [])]
@@ -53,13 +51,16 @@ def youtube_filter(keywords, video_type="video", days=7, min_views=1000, max_sub
             views = int(video["statistics"].get("viewCount", 0))
             duration_sec = parse_duration(video["contentDetails"]["duration"])
 
-            # ✅ Shorts filter
-            if video_type.lower() == "shorts" and duration_sec > 60:
-                continue
+            # ✅ Shorts = ≤ 180s (3 minutes)
+            if video_type.lower() == "shorts":
+                if duration_sec > 180:
+                    continue
 
-            # ✅ Video filter with custom length
+            # ✅ Videos = > 180s (apply interval filter)
             if video_type.lower() == "video":
-                if duration_sec < video_min_len * 60 or duration_sec > video_max_len * 60:
+                if duration_sec <= 180:
+                    continue
+                if not (video_min_len * 60 <= duration_sec <= video_max_len * 60):
                     continue
 
             if views < min_views:
@@ -110,15 +111,13 @@ max_results = st.slider("Max results:", 10, 50, 20)
 video_min_len, video_max_len = 0, 99999
 if video_type == "Video":
     length_option = st.selectbox(
-        "Select video length (minutes):",
-        ["Any", "3–5", "5–8", "8–10", "10–15", "15–20", "20–30", "30–40", "40–50"]
+        "Select video length interval (minutes):",
+        ["Any", "1–10", "10–20", "20–30", "30–40", "40–50"]
     )
 
     if length_option != "Any":
-        min_map = {"3–5": 3, "5–8": 5, "8–10": 8, "10–15": 10, "15–20": 15,
-                   "20–30": 20, "30–40": 30, "40–50": 40}
-        max_map = {"3–5": 5, "5–8": 8, "8–10": 10, "10–15": 15, "15–20": 20,
-                   "20–30": 30, "30–40": 40, "40–50": 50}
+        min_map = {"1–10": 1, "10–20": 10, "20–30": 20, "30–40": 30, "40–50": 40}
+        max_map = {"1–10": 10, "10–20": 20, "20–30": 30, "30–40": 40, "40–50": 50}
 
         video_min_len = min_map[length_option]
         video_max_len = max_map[length_option]
